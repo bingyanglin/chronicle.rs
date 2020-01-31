@@ -50,5 +50,5 @@ impl reporter::WorkerId for WorkerId {
 
 #[test]
 fn function_name() {
-    1 == 1;
+    
 }

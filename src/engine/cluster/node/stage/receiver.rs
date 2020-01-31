@@ -19,7 +19,6 @@ struct State {
     stream_id: u16,
     total_length: usize,
     header: bool,
-    zero_buffer: Vec<u8>,
     buffer: Vec<u8>,
     i: usize,
     session_id: usize,
@@ -34,10 +33,11 @@ pub struct Args {
     pub session_id: usize,
 }
 
+
 macro_rules! create_ring_mod {
     ($module:ident, $reporters:expr) => (
         pub mod $module {
-            pub fn lookup_by_range() -> () {
+            fn get_reporter_by_stream_id() {
                 unimplemented!()
             }
         }
@@ -48,7 +48,7 @@ macro_rules! create_ring_mod {
 pub async fn receiver(args: Args) -> () {
 
     let State {mut socket, supervisor_tx: _, reporters, mut stream_id, mut header, mut i,
-        mut total_length, mut buffer, zero_buffer, session_id, mut events} = init(args).await;
+        mut total_length, mut buffer, session_id, mut events} = init(args).await;
 
     create_ring_mod!(ring, reporters);
 
@@ -98,14 +98,13 @@ pub async fn receiver(args: Args) -> () {
 }
 
 async fn init(Args{socket_rx: socket, reporters, supervisor_tx,session_id}: Args) -> State {
-    let zero_buffer: Vec<u8> = vec![0; BUFFER_LENGTH];
     let buffer: Vec<u8> = vec![0; BUFFER_LENGTH];
     let i: usize = 0; // index of the buffer
     let header: bool = false;
     let total_length: usize = 0;
     let stream_id: u16 = 0;
     let events: Vec<(u16,reporter::Event)> = Vec::with_capacity(1000);
-    State {socket,session_id,total_length,i, zero_buffer, buffer, header, supervisor_tx, reporters, stream_id, events}
+    State {socket,session_id,total_length,i, buffer, header, supervisor_tx, reporters, stream_id, events}
 }
 
 
@@ -150,5 +149,5 @@ fn get_total_length_usize(buffer: &[u8]) -> usize {
 }
 
 fn get_stream_id_u16(buffer: &[u8]) -> u16 {
-    ((buffer[2] as u16) << 8) | buffer[4] as u16
+    ((buffer[2] as u16) << 8) | buffer[3] as u16
 }

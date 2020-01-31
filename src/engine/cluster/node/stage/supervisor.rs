@@ -3,27 +3,32 @@
 use super::reporter;
 use super::sender;
 use super::receiver;
+use std::char;
 use tokio::sync::mpsc;
 use std::collections::HashMap;
 use tokio::net::TcpStream;
 use tokio::time::delay_for;
 use std::time::Duration;
-
+use crate::engine::cluster::node;
 
 // types
 pub type Reporters = HashMap<u8,mpsc::UnboundedSender<reporter::Event>>;
-
+pub type Sender = mpsc::UnboundedSender<Event>;
+pub type Receiver = mpsc::UnboundedReceiver<Event>;
 
 // suerpvisor state struct
 struct State {
-    args: Args,
     session_id: usize,
     reporters: Reporters,
     reconnect_requests: u8,
-    tx: mpsc::UnboundedSender<Event>,
-    rx: mpsc::UnboundedReceiver<Event>,
+    tx: Sender,
+    rx: Receiver,
     connected: bool,
     shutting_down: bool,
+    address: String,
+    shard: u8,
+    reporters_num: u8,
+    supervisor_tx: node::supervisor::Sender,
 }
 
 // Arguments struct
@@ -31,6 +36,9 @@ pub struct Args {
     pub address: String,
     pub reporters_num: u8,
     pub shard: u8,
+    pub tx: Sender,
+    pub rx: Receiver,
+    pub supervisor_tx: node::supervisor::Sender,
 }
 
 
@@ -44,33 +52,34 @@ pub enum Event {
 
 pub async fn supervisor(args: Args) -> () {
     // init supervisor
-    let State {mut reporters, tx, mut rx, args, mut session_id, mut reconnect_requests, mut connected, mut shutting_down} = init(args).await;
+    let State {mut reporters, shard, address, tx, mut rx, mut session_id, mut reconnect_requests,
+         mut connected, mut shutting_down, reporters_num, supervisor_tx} = init(args).await;
     // we create sender's channel in advance.
     let (sender_tx, sender_rx) = mpsc::unbounded_channel::<sender::Event>();
     // preparing range to later create stream_ids vector per reporter
-    let (mut start_range, appends_num): (u16, u16) = (0,32768/(args.reporters_num as u16));
+    let (mut start_range, appends_num): (u16, u16) = (0,32768/(reporters_num as u16));
     // the following for loop will start reporters
-    for reporter_num in 0..args.reporters_num {
+    for reporter_num in 0..reporters_num {
         // we create reporter's channel in advance.
         let (reporter_tx, reporter_rx) = mpsc::unbounded_channel::<reporter::Event>();
         // add reporter to reporters map.
         reporters.insert(reporter_num, reporter_tx.clone());
         // start reporter.
         let reporter_args =
-            if reporter_num != args.reporters_num-1 {
+            if reporter_num != reporters_num-1 {
                 let last_range = start_range+appends_num;
                 let stream_ids: Vec<u16> = (start_range..last_range).collect();
                 start_range = last_range;
                 reporter::Args{reporter_num, session_id,
                     sender_tx: sender_tx.clone(), supervisor_tx: tx.clone(),
-                    stream_ids, tx: reporter_tx, rx: reporter_rx, shard: args.shard.clone(),
-                    address: args.address.clone()}
+                    stream_ids, tx: reporter_tx, rx: reporter_rx, shard: shard.clone(),
+                    address: address.clone()}
             } else {
                 let stream_ids: Vec<u16> = (start_range..32768).collect();
                 reporter::Args{reporter_num, session_id,
                     sender_tx: sender_tx.clone(), supervisor_tx: tx.clone(),
-                    stream_ids, tx: reporter_tx, rx: reporter_rx, shard: args.shard.clone(),
-                    address: args.address.clone()}
+                    stream_ids, tx: reporter_tx, rx: reporter_rx, shard: shard.clone(),
+                    address: address.clone()}
             };
         let reporter = reporter::reporter(reporter_args);
         tokio::spawn(reporter);
@@ -82,7 +91,7 @@ pub async fn supervisor(args: Args) -> () {
         match event {
             Event::Connect(sender_tx, sender_rx, reconnect) => {
                 if !shutting_down { // we only try to connect if the stage not shutting_down.
-                    match TcpStream::connect(args.address.clone()).await {
+                    match TcpStream::connect(address.clone()).await {
                         Ok(stream) => {
                             // change the connected status to true
                             connected = true;
@@ -106,7 +115,14 @@ pub async fn supervisor(args: Args) -> () {
                             tokio::spawn(receiver::receiver(receiver_args));
                             if !reconnect {
                                 // TODO now reporters are ready to be exposed to workers.. (ex evmap ring.)
-                                println!("must expose reporters to API");
+                                // create key which could be address:shard (ex "127.0.0.1:9042:5")
+                                let shard_char = char::from_digit(shard as u32, 10).unwrap();
+                                let mut key = address.clone();
+                                key.push(':');
+                                key.push(shard_char);
+                                let event = node::supervisor::Event::Expose(key,reporters.clone());
+                                supervisor_tx.send(event);
+                                println!("just exposed reporters to node");
                             }
 
                         },
@@ -119,7 +135,7 @@ pub async fn supervisor(args: Args) -> () {
                     }
                 }
             },
-            Event::Reconnect(_) if reconnect_requests != args.reporters_num-1 => {
+            Event::Reconnect(_) if reconnect_requests != reporters_num-1 => {
                 // supervisor requires reconnect_requests from all its reporters in order to reconnect.
                 // so in this scope we only count the reconnect_requests up to reporters_num-1, which means only one is left behind.
                 reconnect_requests += 1;
@@ -158,9 +174,15 @@ pub async fn supervisor(args: Args) -> () {
 
 async fn init(args: Args) -> State {
     // init the channel
-    let (tx, rx) = mpsc::unbounded_channel::<Event>();
+    let tx = args.tx;
+    let rx = args.rx;
+    let shard = args.shard;
+    let address = args.address;
+    let reporters_num = args.reporters_num;
+    let supervisor_tx = args.supervisor_tx;
     // generate vector with capcity of reporters_num
-    let reporters: Reporters = HashMap::with_capacity(args.reporters_num as usize);
+    let reporters: Reporters = HashMap::with_capacity(reporters_num as usize);
     // return state
-    State {reporters, tx, rx, args, session_id: 0, reconnect_requests: 0, connected: false, shutting_down: false}
+    State {supervisor_tx, reporters, tx, rx,shard,address,reporters_num,
+        session_id: 0, reconnect_requests: 0, connected: false, shutting_down: false}
 }

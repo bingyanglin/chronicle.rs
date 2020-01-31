@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 // types
+type Sender = mpsc::UnboundedSender<Event>;
+type Receiver = mpsc::UnboundedReceiver<Event>;
 type Payload = Vec<u8>; // Payload type is vector<unsigned-integer-8bit>.
 type Giveload = Vec<u8>; // Giveload type is vector<unsigned-integer-8bit>.
 type StreamId = u16; // stream id type.
@@ -17,12 +19,12 @@ type Workers = HashMap<u16,Worker>; // Workers type is array/list where the elem
 struct State {
     stream_ids: StreamIds,
     workers: Workers,
-    tx: mpsc::UnboundedSender<Event>,
-    rx: mpsc::UnboundedReceiver<Event>,
+    tx: Sender,
+    rx: Receiver,
     sender_tx: sender::Sender,
     session_id: usize,
     checkpoints: u8,
-    supervisor_tx: mpsc::UnboundedSender<supervisor::Event>,
+    supervisor_tx: supervisor::Sender,
     reporter_num: u8,
     address: String,
     shard: u8,
