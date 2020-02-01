@@ -127,12 +127,15 @@ fn process_remaining(mut buffer:  Vec<u8>, stream_id: &mut u16, total_length: &m
         } else {
             if *total_length > BUFFER_LENGTH {
                 buffer.resize(*total_length, 0);
+            } else {
+                buffer.resize(BUFFER_LENGTH, 0);
             }
             *header = true;
             buffer
         }
     } else {
-        // not enough to decode the buffer
+        // not enough to decode the buffer, make sure to resize(extend) the buffer to BUFFER_LENGTH
+        buffer.resize(BUFFER_LENGTH, 0);
         *header = false;
         *total_length = 0;
         buffer
