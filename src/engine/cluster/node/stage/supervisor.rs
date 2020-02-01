@@ -44,7 +44,7 @@ pub struct Args {
 
 // event Enum
 pub enum Event {
-    Connect(mpsc::UnboundedSender<sender::Event>, mpsc::UnboundedReceiver<sender::Event>, bool),
+    Connect(sender::Sender, sender::Receiver, bool),
     Reconnect(usize),
     Shutdown,
 }

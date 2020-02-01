@@ -8,13 +8,13 @@ use tokio::prelude::*;
 
 // types
 pub type Sender = mpsc::UnboundedSender<Event>;
-
+pub type Receiver = mpsc::UnboundedReceiver<Event>;
 // args struct, each actor must have public Arguments struct,
 // to pass options when starting the actor.
 pub struct Args {
-    pub tx: mpsc::UnboundedSender<Event>, // sender's tx to send self events if needed.
-    pub rx: mpsc::UnboundedReceiver<Event>, // sender's rx to recv events.
-    pub supervisor_tx: mpsc::UnboundedSender<supervisor::Event>,
+    pub tx: Sender, // sender's tx to send self events if needed.
+    pub rx: Receiver, // sender's rx to recv events.
+    pub supervisor_tx: supervisor::Sender,
     pub socket_tx: WriteHalf<TcpStream>,
     pub reporters: supervisor::Reporters,
     pub session_id: usize,
@@ -22,12 +22,12 @@ pub struct Args {
 }
 // private sender's state struct.
 struct State {
-    supervisor_tx: mpsc::UnboundedSender<supervisor::Event>,
+    supervisor_tx: supervisor::Sender,
     reporters: supervisor::Reporters,
     session_id: usize,
     socket: WriteHalf<TcpStream>, // the socket_writehalf side to that given shard
-    tx: mpsc::UnboundedSender<Event>, // sender's tx to send self events if needed.
-    rx: mpsc::UnboundedReceiver<Event>, // sender's rx to recv events.
+    tx: Sender,
+    rx: Receiver,
 }
 
 pub enum Event {

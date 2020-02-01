@@ -32,11 +32,11 @@ struct State {
 
 // Arguments struct
 pub struct Args {
-    pub tx: mpsc::UnboundedSender<Event>,
-    pub rx: mpsc::UnboundedReceiver<Event>,
+    pub tx: Sender,
+    pub rx: Receiver,
     pub sender_tx: sender::Sender,
     pub session_id: usize,
-    pub supervisor_tx: mpsc::UnboundedSender<supervisor::Event>,
+    pub supervisor_tx: supervisor::Sender,
     pub reporter_num: u8,
     pub stream_ids: StreamIds,
     pub address: String,

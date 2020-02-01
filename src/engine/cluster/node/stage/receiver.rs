@@ -1,7 +1,6 @@
 // uses
 use super::reporter;
 use super::supervisor;
-use tokio::sync::mpsc;
 use tokio::net::TcpStream;
 use tokio::io::ReadHalf;
 use tokio::prelude::*;
@@ -13,7 +12,7 @@ const BUFFER_LENGTH: usize = 1024000;
 
 // suerpvisor state struct
 struct State {
-    supervisor_tx: mpsc::UnboundedSender<supervisor::Event>,
+    supervisor_tx: supervisor::Sender,
     reporters: supervisor::Reporters,
     socket: ReadHalf<TcpStream>,
     stream_id: u16,
@@ -27,7 +26,7 @@ struct State {
 
 // Arguments struct
 pub struct Args {
-    pub supervisor_tx: mpsc::UnboundedSender<supervisor::Event>,
+    pub supervisor_tx: supervisor::Sender,
     pub reporters: supervisor::Reporters,
     pub socket_rx: ReadHalf<TcpStream>,
     pub session_id: usize,
