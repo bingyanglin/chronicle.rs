@@ -31,7 +31,7 @@ impl WorkerId for PreparerId {
 
 pub fn try_prepare(prepare_payload:  &[u8],tx: &Sender, giveload: &Giveload)  {
     // check if the giveload is unprepared_error.
-    if check_prepared(giveload) {
+    if check_unprepared(giveload) {
         // create preparer
         let preparer = PreparerId {query_reference: QueryRef::new()};
         // create event query
@@ -41,6 +41,6 @@ pub fn try_prepare(prepare_payload:  &[u8],tx: &Sender, giveload: &Giveload)  {
     }
 }
 
-fn check_prepared(giveload: &Giveload) -> bool {
+fn check_unprepared(giveload: &Giveload) -> bool {
     giveload[3] == 0 && giveload[7..11] == [0,0,37,0]
 }
