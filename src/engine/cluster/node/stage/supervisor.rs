@@ -1,5 +1,7 @@
 // stage supervisor
 // uses
+use crate::engine::cluster::node::supervisor::StageNum;
+use crate::engine::cluster::supervisor::Address;
 use super::reporter;
 use super::sender;
 use super::receiver;
@@ -12,9 +14,10 @@ use std::time::Duration;
 use crate::engine::cluster::node;
 
 // types
-pub type Reporters = HashMap<u8,mpsc::UnboundedSender<reporter::Event>>;
+pub type ReporterNum = u8;
 pub type Sender = mpsc::UnboundedSender<Event>;
 pub type Receiver = mpsc::UnboundedReceiver<Event>;
+pub type Reporters = HashMap<ReporterNum,mpsc::UnboundedSender<reporter::Event>>;
 
 // suerpvisor state struct
 struct State {
@@ -25,16 +28,16 @@ struct State {
     rx: Receiver,
     connected: bool,
     shutting_down: bool,
-    address: String,
-    shard: u8,
+    address: Address,
+    shard: StageNum,
     reporters_num: u8,
     supervisor_tx: node::supervisor::Sender,
 }
 
 // Arguments struct
 pub struct Args {
-    pub address: String,
-    pub reporters_num: u8,
+    pub address: Address,
+    pub reporters_num: ReporterNum,
     pub shard: u8,
     pub tx: Sender,
     pub rx: Receiver,
@@ -116,13 +119,9 @@ pub async fn supervisor(args: Args) -> () {
                             if !reconnect {
                                 // TODO now reporters are ready to be exposed to workers.. (ex evmap ring.)
                                 // create key which could be address:shard (ex "127.0.0.1:9042:5")
-                                let shard_char = char::from_digit(shard as u32, 10).unwrap();
-                                let mut key = address.clone();
-                                key.push(':');
-                                key.push(shard_char);
-                                let event = node::supervisor::Event::Expose(key,reporters.clone());
+                                let event = node::supervisor::Event::Expose(shard,reporters.clone());
                                 supervisor_tx.send(event);
-                                println!("just exposed reporters to node");
+                                println!("just exposed stage reporters of shard: {}, to node supervisor", shard);
                             }
 
                         },
@@ -173,7 +172,6 @@ pub async fn supervisor(args: Args) -> () {
 }
 
 async fn init(args: Args) -> State {
-    // init the channel
     let tx = args.tx;
     let rx = args.rx;
     let shard = args.shard;

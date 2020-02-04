@@ -1,14 +1,17 @@
-// node supervisor .. spawn stages
-use crate::engine::cluster::node::stage::supervisor::Reporters;
+// node supervisor .. spawn stages // WIP
+use crate::engine::cluster::node::stage::supervisor::ReporterNum;
+use crate::engine::cluster::supervisor::Address;
 use std::collections::HashMap;
 use super::stage;
 use tokio::sync::mpsc;
 use tokio;
 
 // types
-type Stages = HashMap<u8, stage::supervisor::Sender>;
+pub type StageNum = u8;
+type Stages = HashMap<u8, stage::supervisor::Sender>; // childern
 pub type Sender = mpsc::UnboundedSender<Event>;
 pub type Receiver = mpsc::UnboundedReceiver<Event>;
+pub type NodeReporters = Vec<(StageNum, stage::supervisor::Reporters)>;
 
 // suerpvisor state struct
 struct State {
@@ -18,13 +21,13 @@ struct State {
     rx: Receiver,
     shards_num: u8,
     stages: Stages,
-    node: Vec<(String, Reporters)>,
+    node_reporters: NodeReporters,
 }
 
 // Arguments struct
 pub struct Args {
-    pub address: String,
-    pub reporters_num: u8,
+    pub address: Address,
+    pub reporters_num: ReporterNum,
     // pub supervisor_tx:
 }
 
@@ -33,12 +36,12 @@ pub struct Args {
 pub enum Event {
     GetShardsNum,
     Shutdown,
-    Expose(String, Reporters),
+    Expose(u8, stage::supervisor::Reporters),
 }
 
 
 pub async fn supervisor(args: Args) -> () {
-    let State{mut rx,tx,mut spawned, mut shards_num, mut stages, args, mut node} = init(args).await;
+    let State{mut rx,tx,mut spawned, mut shards_num, mut stages, args, mut node_reporters} = init(args).await;
     // send self GetShardsNum
     tx.send(Event::GetShardsNum);
     // event loop
@@ -67,10 +70,10 @@ pub async fn supervisor(args: Args) -> () {
                 }
                 rx.close();
             }
-            Event::Expose(key, reporters) => {
-                node.push((key, reporters));
-                if shards_num == (node.len() as u8) {
-                    // now we have all stage's reporters, therefore we expose the node to cluster supervisor
+            Event::Expose(stage_num, reporters) => {
+                node_reporters.push((stage_num, reporters));
+                if shards_num == (node_reporters.len() as u8) {
+                    // now we have all stage's reporters, therefore we expose the node_reporters to cluster supervisor
 
                 }
             }
@@ -84,7 +87,7 @@ async fn init(args: Args) -> State {
     // init the channel
     let (tx, rx) = mpsc::unbounded_channel::<Event>();
     let stages: Stages = HashMap::new();
-    let node: Vec<(String, Reporters)> = Vec::new();
+    let node_reporters: NodeReporters = Vec::new();
     // return state
-    State {tx,rx,stages,shards_num: 0, spawned: false, args, node}
+    State {tx,rx,stages,shards_num: 0, spawned: false, args, node_reporters}
 }

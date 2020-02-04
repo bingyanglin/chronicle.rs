@@ -43,7 +43,7 @@ pub enum Event {
 
 pub async fn sender(args: Args) -> () {
     // init the actor
-    let State {supervisor_tx, reporters, session_id, mut socket, mut rx,mut tx} = init(args).await;
+    let State {supervisor_tx, reporters, session_id, mut socket, mut rx,tx} = init(args).await;
     // loop to process event by event.
     while let Some(Event::Payload{stream_id, payload, reporter}) = rx.recv().await {
         // write the payload to the socket, make sure the result is valid

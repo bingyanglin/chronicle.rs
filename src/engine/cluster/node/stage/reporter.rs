@@ -6,10 +6,10 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 // types
-type Sender = mpsc::UnboundedSender<Event>;
+pub type Sender = mpsc::UnboundedSender<Event>;
 type Receiver = mpsc::UnboundedReceiver<Event>;
 type Payload = Vec<u8>; // Payload type is vector<unsigned-integer-8bit>.
-type Giveload = Vec<u8>; // Giveload type is vector<unsigned-integer-8bit>.
+pub type Giveload = Vec<u8>; // Giveload type is vector<unsigned-integer-8bit>.
 type StreamId = u16; // stream id type.
 type Worker = Box<dyn WorkerId>; // Worker is how will be presented in the workers_map.
 type StreamIds = Vec<StreamId>; // StreamIds type is array/list which should hold u8 from 1 to 32768.
@@ -112,7 +112,7 @@ impl Status {
 pub trait WorkerId: Send {
     fn send_sendstatus_ok(&mut self, send_status: SendStatus) -> Status ;
     fn send_sendstatus_err(&mut self, send_status: SendStatus) -> Status ;
-    fn send_response(&mut self, giveload: Giveload) -> Status ;
+    fn send_response(&mut self,tx: &Sender, giveload: Giveload) -> Status ;
     fn send_error(&mut self, error: Error) -> Status ;
 }
 
@@ -144,7 +144,7 @@ pub async fn reporter(args: Args) -> () {
             Event::Response{giveload, stream_id} => {
 
                 let worker = workers.get_mut(&stream_id).unwrap();
-                if let Status::Done = worker.send_response(giveload) {
+                if let Status::Done = worker.send_response(&tx,giveload) {
                     // remove the worker from workers.
                     workers.remove(&stream_id);
                     // push the stream_id back to stream_ids vector.
@@ -201,7 +201,7 @@ pub async fn reporter(args: Args) -> () {
                             let event = supervisor::Event::Reconnect(old_session_id);
                             supervisor_tx.send(event);
                         } else {
-                            checkpoints += 1;
+                            checkpoints = 1;
                         }
                     }
                     Session::Shutdown => {
