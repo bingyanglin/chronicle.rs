@@ -1,7 +1,9 @@
-
-use chronicle::engine::cluster::node::stage::reporter::{Status,SendStatus, Error};
-use chronicle::engine::cluster::node::stage::reporter;
+// example WIP
+use chronicle::engine::cluster::node::stage::reporter::{WorkerId as ReporterWorkerId, Status,SendStatus, Error, Sender as ReporterSender};
+use chronicle::engine::cluster::node::stage::preparer::try_prepare;
 use tokio::sync::mpsc;
+
+const PREPARE_PAYLOAD: [u8; 200] = [0;200]; // imagine this is an encoded prepare payload
 
 type Sender = mpsc::UnboundedSender<WorkerEvent>;
 
@@ -13,19 +15,19 @@ enum WorkerEvent {
 
 // queryRef struct which hold whatever the worker wants to link a given request.
 #[derive(Clone,Copy)]
-pub struct QueryRef {query_id: usize, status: Status}
+pub struct QueryRef {query_id: usize,prepare_payload: &'static [u8], status: Status}
 
 // QueryRef new
 impl QueryRef {
-    fn new(query_id: usize) -> Self {
-        QueryRef {query_id: query_id, status: Status::New}
+    fn new(query_id: usize, prepare_payload: &'static [u8]) -> Self {
+        QueryRef {query_id: query_id, prepare_payload: prepare_payload,  status: Status::New}
     }
 }
 // worker's WorkerId struct
 pub struct WorkerId {worker: Sender, query_reference: QueryRef}
 
 // here you define how the reporter will send you(the worker) events
-impl reporter::WorkerId for WorkerId {
+impl ReporterWorkerId for WorkerId {
     fn send_sendstatus_ok(&mut self, send_status: SendStatus) -> Status {
         let event = WorkerEvent::SendStatus{send_status, query_reference: self.query_reference};
         self.worker.send(event);
@@ -36,7 +38,8 @@ impl reporter::WorkerId for WorkerId {
          self.worker.send(event);
          self.query_reference.status.return_error()
       }
-     fn send_response(&mut self, giveload: Vec<u8>) -> Status {
+     fn send_response(&mut self, tx: &ReporterSender, giveload: Vec<u8>) -> Status {
+         try_prepare(self.query_reference.prepare_payload, tx, &giveload);
          let event = WorkerEvent::Response{giveload: giveload, query_reference: self.query_reference};
          self.worker.send(event);
          self.query_reference.status.return_response()
@@ -50,5 +53,5 @@ impl reporter::WorkerId for WorkerId {
 
 #[test]
 fn function_name() {
-    
+
 }
