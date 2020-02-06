@@ -10,7 +10,7 @@ impl QueryRef {
     }
 }
 
-// worker's WorkerId struct
+
 pub struct PreparerId {query_reference: QueryRef}
 
 impl WorkerId for PreparerId {
@@ -42,5 +42,5 @@ pub fn try_prepare(prepare_payload:  &[u8],tx: &Sender, giveload: &Giveload)  {
 }
 
 fn check_unprepared(giveload: &Giveload) -> bool {
-    giveload[3] == 0 && giveload[7..11] == [0,0,37,0]
+    giveload[3] == 0 && giveload[7..11] == [0,0,37,0] // cql specs
 }

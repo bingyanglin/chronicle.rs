@@ -1,5 +1,6 @@
 // stage supervisor
 // uses
+use crate::engine::cluster::node::stage::reporter::{StreamId, StreamIds};
 use crate::engine::cluster::node::supervisor::StageNum;
 use crate::engine::cluster::supervisor::Address;
 use super::reporter;
@@ -60,7 +61,7 @@ pub async fn supervisor(args: Args) -> () {
     // we create sender's channel in advance.
     let (sender_tx, sender_rx) = mpsc::unbounded_channel::<sender::Event>();
     // preparing range to later create stream_ids vector per reporter
-    let (mut start_range, appends_num): (u16, u16) = (0,32768/(reporters_num as u16));
+    let (mut start_range, appends_num): (StreamId, StreamId) = (0,32767/(reporters_num as i16));
     // the following for loop will start reporters
     for reporter_num in 0..reporters_num {
         // we create reporter's channel in advance.
@@ -71,14 +72,14 @@ pub async fn supervisor(args: Args) -> () {
         let reporter_args =
             if reporter_num != reporters_num-1 {
                 let last_range = start_range+appends_num;
-                let stream_ids: Vec<u16> = (start_range..last_range).collect();
+                let stream_ids: StreamIds = (start_range..last_range).collect();
                 start_range = last_range;
                 reporter::Args{reporter_num, session_id,
                     sender_tx: sender_tx.clone(), supervisor_tx: tx.clone(),
                     stream_ids, tx: reporter_tx, rx: reporter_rx, shard: shard.clone(),
                     address: address.clone()}
             } else {
-                let stream_ids: Vec<u16> = (start_range..32768).collect();
+                let stream_ids: StreamIds = (start_range..32767).collect();
                 reporter::Args{reporter_num, session_id,
                     sender_tx: sender_tx.clone(), supervisor_tx: tx.clone(),
                     stream_ids, tx: reporter_tx, rx: reporter_rx, shard: shard.clone(),
@@ -116,6 +117,7 @@ pub async fn supervisor(args: Args) -> () {
                                 socket_rx: socket_rx, reporters: reporters.clone(),
                                 supervisor_tx: tx.clone(), session_id: session_id};
                             tokio::spawn(receiver::receiver(receiver_args));
+
                             if !reconnect {
                                 // TODO now reporters are ready to be exposed to workers.. (ex evmap ring.)
                                 // create key which could be address:shard (ex "127.0.0.1:9042:5")
@@ -126,12 +128,13 @@ pub async fn supervisor(args: Args) -> () {
 
                         },
                         Err(err) => {
-                            println!("{:?}", err);
-                            delay_for(Duration::from_millis(1000)).await;
+                            println!("trying to connect every 5 seconds: err {}", err);
+                            delay_for(Duration::from_millis(5000)).await;
                             // try again to connect
                             tx.send(Event::Connect(sender_tx, sender_rx,reconnect));
                         },
                     }
+
                 }
             },
             Event::Reconnect(_) if reconnect_requests != reporters_num-1 => {
@@ -142,8 +145,6 @@ pub async fn supervisor(args: Args) -> () {
             Event::Reconnect(_) => {
                 // the last reconnect_request from last reporter,
                 reconnect_requests = 0; // reset reconnect_requests to zero
-                // let's reconnect, before we update the session_id by adding 1.
-                session_id += 1;
                 // change the connected status
                 connected = false;
                 // create sender's channel

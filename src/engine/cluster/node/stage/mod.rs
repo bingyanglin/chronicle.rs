@@ -4,6 +4,8 @@ pub mod reporter;
 pub mod preparer;
 pub mod supervisor;
 
+pub mod worker;
+
 use crate::engine::cluster::node;
 
 
