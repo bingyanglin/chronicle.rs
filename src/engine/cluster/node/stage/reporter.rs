@@ -11,7 +11,7 @@ type Receiver = mpsc::UnboundedReceiver<Event>;
 pub type Giveload = Vec<u8>; // Giveload type is vector<unsigned-integer-8bit>.
 pub type StreamId = i16; // stream id type.
 pub type StreamIds = Vec<StreamId>; // StreamIds type is vector which should hold u8 from 1 to 32768.
-type Broker = mpsc::UnboundedSender<MinimalEvent>;
+type Broker = mpsc::UnboundedSender<BrokerEvent>;
 pub type Worker = Box<dyn WorkerId>; // Worker is how will be presented in the workers_map.
 type Workers = HashMap<StreamId,Id>;
 
@@ -87,10 +87,10 @@ impl Id {
             Id::Broker(broker) => {
                 let event = match broker.query_reference.status {
                     Status::New => {
-                        MinimalEvent::SendStatus{send_status, query_reference: broker.query_reference, my_tx: None}
+                        BrokerEvent::SendStatus{send_status, query_reference: broker.query_reference, my_tx: None}
                     }
                     _ => {
-                        MinimalEvent::SendStatus{send_status, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())}
+                        BrokerEvent::SendStatus{send_status, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())}
                     }
                 };
                 broker.broker.send(event);
@@ -104,7 +104,7 @@ impl Id {
                 worker.send_sendstatus_err(send_status)
             },
             Id::Broker(broker) => {
-                let event = MinimalEvent::SendStatus{send_status, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())};
+                let event = BrokerEvent::SendStatus{send_status, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())};
                 broker.broker.send(event);
                 broker.query_reference.status.return_error()
             }
@@ -119,10 +119,10 @@ impl Id {
                 try_prepare(broker.query_reference.prepare_payload, tx, &giveload);
                 let event = match broker.query_reference.status {
                     Status::New => {
-                        MinimalEvent::Response{giveload, query_reference: broker.query_reference, my_tx: None}
+                        BrokerEvent::Response{giveload, query_reference: broker.query_reference, my_tx: None}
                     }
                     _ => {
-                        MinimalEvent::Response{giveload, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())}
+                        BrokerEvent::Response{giveload, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())}
                     }
                 };
                 broker.broker.send(event);
@@ -136,7 +136,7 @@ impl Id {
                 worker.send_error(error)
             }
             Id::Broker(broker) => {
-                let event = MinimalEvent::Error{kind: error, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())};
+                let event = BrokerEvent::Error{kind: error, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())};
                 broker.broker.send(event);
                 broker.query_reference.status.return_error()
             }
@@ -144,7 +144,7 @@ impl Id {
     }
 }
 
-pub enum MinimalEvent {
+pub enum BrokerEvent {
     Response{giveload: Giveload, query_reference: QueryRef, my_tx: Option<Broker>},
     SendStatus{send_status: SendStatus, query_reference: QueryRef, my_tx: Option<Broker>},
     Error{kind: Error, query_reference: QueryRef, my_tx: Option<Broker>},
