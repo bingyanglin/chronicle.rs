@@ -1,19 +1,19 @@
 // uses
+use crate::engine::cluster::node::stage::preparer::try_prepare;
 use super::sender;
 use super::supervisor;
 use tokio::sync::mpsc;
 use std::collections::HashMap;
-use std::time::SystemTime;
 
-use super::worker;
 // types
 pub type Sender = mpsc::UnboundedSender<Event>;
 type Receiver = mpsc::UnboundedReceiver<Event>;
 pub type Giveload = Vec<u8>; // Giveload type is vector<unsigned-integer-8bit>.
 pub type StreamId = i16; // stream id type.
 pub type StreamIds = Vec<StreamId>; // StreamIds type is vector which should hold u8 from 1 to 32768.
-type Worker = Box<dyn WorkerId>; // Worker is how will be presented in the workers_map.
-type Workers = HashMap<StreamId,Worker>;
+type Broker = mpsc::UnboundedSender<MinimalEvent>;
+pub type Worker = Box<dyn WorkerId>; // Worker is how will be presented in the workers_map.
+type Workers = HashMap<StreamId,Id>;
 
 // reporter state struct it holds StreamIds and Workers and the reporter's Sender
 struct State {
@@ -44,8 +44,8 @@ pub struct Args {
 }
 
 pub enum Event {
-    Query {
-        worker: Worker,
+    Request {
+        id: Id,
         payload: sender::Payload,
     },
     Response{giveload: Giveload, stream_id: StreamId},
@@ -56,6 +56,98 @@ pub enum Event {
 pub enum SendStatus {
     Ok(StreamId),
     Err(StreamId),
+}
+
+#[derive(Clone,Copy, Debug)]
+pub struct QueryRef {pub query_id: usize,prepare_payload: &'static [u8], status: Status}
+// QueryRef new
+impl QueryRef {
+    pub fn new(query_id: usize, prepare_payload: &'static [u8]) -> Self {
+        QueryRef {query_id: query_id, prepare_payload: prepare_payload,  status: Status::New}
+    }
+}
+pub struct BrokerId {broker: Broker, query_reference: QueryRef}
+
+impl BrokerId {
+    pub fn new(broker: Broker, query_reference: QueryRef) -> BrokerId {
+        BrokerId {broker, query_reference}
+    }
+}
+pub enum Id {
+    Worker(Worker),
+    Broker(BrokerId)
+}
+
+impl Id {
+    fn send_sendstatus_ok(&mut self, send_status: SendStatus) -> Status {
+        match self {
+            Id::Worker(worker) => {
+                worker.send_sendstatus_ok(send_status)
+            },
+            Id::Broker(broker) => {
+                let event = match broker.query_reference.status {
+                    Status::New => {
+                        MinimalEvent::SendStatus{send_status, query_reference: broker.query_reference, my_tx: None}
+                    }
+                    _ => {
+                        MinimalEvent::SendStatus{send_status, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())}
+                    }
+                };
+                broker.broker.send(event);
+                broker.query_reference.status.return_sendstatus_ok()
+            }
+        }
+    }
+    fn send_sendstatus_err(&mut self, send_status: SendStatus) -> Status {
+        match self {
+            Id::Worker(worker) => {
+                worker.send_sendstatus_err(send_status)
+            },
+            Id::Broker(broker) => {
+                let event = MinimalEvent::SendStatus{send_status, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())};
+                broker.broker.send(event);
+                broker.query_reference.status.return_error()
+            }
+        }
+    }
+    fn send_response(&mut self, tx: &Sender, giveload: Giveload) -> Status {
+        match self {
+            Id::Worker(worker) => {
+                worker.send_response(tx, giveload)
+            },
+            Id::Broker(broker) => {
+                try_prepare(broker.query_reference.prepare_payload, tx, &giveload);
+                let event = match broker.query_reference.status {
+                    Status::New => {
+                        MinimalEvent::Response{giveload, query_reference: broker.query_reference, my_tx: None}
+                    }
+                    _ => {
+                        MinimalEvent::Response{giveload, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())}
+                    }
+                };
+                broker.broker.send(event);
+                broker.query_reference.status.return_response()
+            }
+        }
+    }
+    fn send_error(&mut self, error: Error) -> Status {
+        match self {
+            Id::Worker(worker) => {
+                worker.send_error(error)
+            }
+            Id::Broker(broker) => {
+                let event = MinimalEvent::Error{kind: error, query_reference: broker.query_reference, my_tx: Some(broker.broker.to_owned())};
+                broker.broker.send(event);
+                broker.query_reference.status.return_error()
+            }
+        }
+    }
+}
+
+pub enum MinimalEvent {
+    Response{giveload: Giveload, query_reference: QueryRef, my_tx: Option<Broker>},
+    SendStatus{send_status: SendStatus, query_reference: QueryRef, my_tx: Option<Broker>},
+    Error{kind: Error, query_reference: QueryRef, my_tx: Option<Broker>},
 }
 
 #[derive(Debug)]
@@ -70,7 +162,7 @@ pub enum Session {
     Shutdown,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Status {
     New, // the query cycle is New
     Sent, // the query had been sent to the socket.
@@ -108,6 +200,7 @@ impl Status {
     }
 }
 
+
 // WorkerId trait type which will be implemented by worker in order to send their channeL_tx.
 pub trait WorkerId: Send {
     fn send_sendstatus_ok(&mut self, send_status: SendStatus) -> Status ;
@@ -124,7 +217,7 @@ pub async fn reporter(args: Args) -> () {
          mut session_id, mut checkpoints, supervisor_tx, reporter_num, shard, address} = init(args).await;
     while let Some(event) = rx.recv().await {
         match event {
-            Event::Query{mut worker, payload} => {
+            Event::Request{mut id, payload} => {
                 if let Some(stream_id) = stream_ids.pop()   {
                     // assign stream_id to the payload.
                     let payload = assign_stream_id_to_payload(stream_id, payload);
@@ -136,17 +229,17 @@ pub async fn reporter(args: Args) -> () {
                             sender.send(event);
                             sender_tx = Some(sender);
                             // insert worker into workers map using stream_id as key.
-                            workers.insert(stream_id, worker);
+                            workers.insert(stream_id, id);
                         }
                         None => {
                             // this means the sender_tx had been droped as a result of checkpoint
                             let send_status = SendStatus::Err(0);
-                            worker.send_sendstatus_err(send_status);
+                            id.send_sendstatus_err(send_status);
                         }
                     }
                 } else {
                     // send_overload to the worker in-case we don't have anymore stream_ids.
-                    worker.send_error(Error::Overload);
+                    id.send_error(Error::Overload);
                 }
             },
             Event::Response{giveload, stream_id} => {
@@ -166,8 +259,9 @@ pub async fn reporter(args: Args) -> () {
                         let worker = workers.get_mut(&stream_id).unwrap();
                         // tell the worker and mutate its status,
                         if let Status::Done = worker.send_sendstatus_ok(send_status){
+                            println!("ok status done in send");
                             // remove the worker from workers.
-                            workers.remove(&stream_id);
+                            workers.remove(&stream_id).unwrap();
                             // push the stream_id back to stream_ids vector.
                             stream_ids.push(stream_id);
                         };
@@ -184,10 +278,10 @@ pub async fn reporter(args: Args) -> () {
                     },
                 }
             }
-            Event::Session(checkpoint) => {
+            Event::Session(session) => {
                 // drop the sender_tx to prevent any further payloads, and also force sender to gracefully shutdown
                 sender_tx = None;
-                match checkpoint {
+                match session {
                     Session::New(new_session_id, new_sender_tx) => {
                         session_id = new_session_id;
                         sender_tx = Some(new_sender_tx);

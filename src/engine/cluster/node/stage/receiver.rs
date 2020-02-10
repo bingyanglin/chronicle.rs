@@ -9,7 +9,7 @@ use tokio::prelude::*;
 type Events = Vec<(reporter::StreamId,reporter::Event)>;
 // consts
 const HEADER_LENGTH: usize = 9;
-const BUFFER_LENGTH: usize = 1024000;
+const BUFFER_LENGTH: usize = 102400;
 
 // suerpvisor state struct
 struct State {
