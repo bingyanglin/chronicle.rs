@@ -1,4 +1,5 @@
 // uses
+use crate::engine::cluster::node::stage::reporter::StreamId;
 use super::reporter;
 use super::supervisor;
 use tokio::net::TcpStream;
@@ -9,7 +10,7 @@ use tokio::prelude::*;
 type Events = Vec<(reporter::StreamId,reporter::Event)>;
 // consts
 const HEADER_LENGTH: usize = 9;
-const BUFFER_LENGTH: usize = 102400;
+const BUFFER_LENGTH: usize = 1024000;
 
 // suerpvisor state struct
 struct State {
@@ -23,6 +24,7 @@ struct State {
     i: usize,
     session_id: usize,
     events: Events,
+    appends_num: i16,
 }
 
 // Arguments struct
@@ -47,7 +49,7 @@ macro_rules! create_ring_mod {
 
 pub async fn receiver(args: Args) -> () {
     let State {mut socket, supervisor_tx: _, reporters, mut stream_id, mut header, mut i,
-        mut total_length, mut buffer, session_id, mut events} = init(args).await;
+        mut total_length, mut buffer, session_id, mut events, appends_num} = init(args).await;
     // create range lookup (TODO)
     create_ring_mod!(ring, reporters);
     // receiver event loop
@@ -74,7 +76,7 @@ pub async fn receiver(args: Args) -> () {
                     let remaining_buffer = buffer.split_off(total_length);
                     // send event(response) to reporter
                     let event = reporter::Event::Response{giveload: buffer, stream_id: stream_id};
-                    let reporter_tx = reporters.get(&0).unwrap();
+                    let reporter_tx = reporters.get(&compute_reporter_num(stream_id, appends_num)).unwrap();
                     let _ = reporter_tx.send(event);
                     // decrease total_length from current_length
                     current_length -= total_length;
@@ -86,7 +88,7 @@ pub async fn receiver(args: Args) -> () {
                     buffer = process_remaining(remaining_buffer, &mut stream_id,&mut total_length, &mut header, &mut i, &mut events);
                     // drain acc events
                     for (s_id, event) in events.drain(..) {
-                        let reporter_tx = reporters.get(&0).unwrap();
+                        let reporter_tx = reporters.get(&compute_reporter_num(s_id, appends_num)).unwrap();
                         let _ = reporter_tx.send(event);
                     }
                 } else {
@@ -113,7 +115,8 @@ async fn init(Args{socket_rx: socket, reporters, supervisor_tx,session_id}: Args
     let total_length: usize = 0;
     let stream_id: reporter::StreamId = 0;
     let events: Events = Vec::with_capacity(1000);
-    State {socket,session_id,total_length,i, buffer, header, supervisor_tx, reporters, stream_id, events}
+    let appends_num: i16 = 32767/reporters.len() as i16;
+    State {socket,session_id,total_length,i, buffer, header, supervisor_tx, reporters, stream_id, events, appends_num}
 }
 
 
@@ -162,4 +165,8 @@ fn get_total_length_usize(buffer: &[u8]) -> usize {
 
 fn get_stream_id(buffer: &[u8]) -> reporter::StreamId {
     ((buffer[2] as reporter::StreamId) << 8) | buffer[3] as reporter::StreamId
+}
+
+fn compute_reporter_num(stream_id: StreamId, appends_num: i16)  -> u8 {
+    (stream_id/appends_num) as u8
 }
