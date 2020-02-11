@@ -164,10 +164,10 @@ pub enum Session {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Status {
-    New, // the query cycle is New
-    Sent, // the query had been sent to the socket.
-    Respond, // the query got a response.
-    Done, // the query cycle is done.
+    New, // the request cycle is New
+    Sent, // the request had been sent to the socket.
+    Respond, // the request got a response.
+    Done, // the request cycle is done.
 }
 
 // query status
@@ -259,7 +259,6 @@ pub async fn reporter(args: Args) -> () {
                         let worker = workers.get_mut(&stream_id).unwrap();
                         // tell the worker and mutate its status,
                         if let Status::Done = worker.send_sendstatus_ok(send_status){
-                            println!("ok status done in send");
                             // remove the worker from workers.
                             workers.remove(&stream_id).unwrap();
                             // push the stream_id back to stream_ids vector.
@@ -335,7 +334,7 @@ fn force_consistency(stream_ids: &mut StreamIds, workers: &mut Workers) {
     for (stream_id, mut worker_id) in workers.drain() {
         // push the stream_id back into the stream_ids vector
         stream_ids.push(stream_id);
-        // tell worker_id that we lost the idea
-        worker_id.send_error(Error::Lost);
+        // tell worker_id that we lost the response for his request, because we lost scylla connection in middle of request cycle,
+        worker_id.send_error(Error::Lost); // still this is a rare case.
     }
 }
