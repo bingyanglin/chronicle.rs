@@ -61,7 +61,7 @@ pub async fn supervisor(args: Args) -> () {
     // we create sender's channel in advance.
     let (sender_tx, sender_rx) = mpsc::unbounded_channel::<sender::Event>();
     // preparing range to later create stream_ids vector per reporter
-    let (mut start_range, appends_num): (StreamId, StreamId) = (0,32767/(reporters_num as i16));
+    let (mut start_range, appends_num): (StreamId, i16) = (0,32767/(reporters_num as i16));
     // the following for loop will start reporters
     for reporter_num in 0..reporters_num {
         // we create reporter's channel in advance.
@@ -69,22 +69,17 @@ pub async fn supervisor(args: Args) -> () {
         // add reporter to reporters map.
         reporters.insert(reporter_num, reporter_tx.clone());
         // start reporter.
-        let reporter_args =
-            if reporter_num != reporters_num-1 {
-                let last_range = start_range+appends_num;
-                let stream_ids: StreamIds = (start_range..last_range).collect();
-                start_range = last_range;
-                reporter::Args{reporter_num, session_id,
-                    sender_tx: sender_tx.clone(), supervisor_tx: tx.clone(),
-                    stream_ids, tx: reporter_tx, rx: reporter_rx, shard: shard.clone(),
-                    address: address.clone()}
-            } else {
-                let stream_ids: StreamIds = (start_range..32767).collect();
-                reporter::Args{reporter_num, session_id,
-                    sender_tx: sender_tx.clone(), supervisor_tx: tx.clone(),
-                    stream_ids, tx: reporter_tx, rx: reporter_rx, shard: shard.clone(),
-                    address: address.clone()}
-            };
+        let last_range = start_range+appends_num;
+        let stream_ids: StreamIds = ((if reporter_num == 0 {
+            1 // we force first reporter_num to start range from 1, as we reversing stream_id=0 for future uses.
+        } else {
+            start_range // otherwise we keep the start_range as it's
+        })..last_range).collect();
+        start_range = last_range;
+        let reporter_args = reporter::Args{reporter_num, session_id,
+            sender_tx: sender_tx.clone(), supervisor_tx: tx.clone(),
+            stream_ids, tx: reporter_tx, rx: reporter_rx, shard: shard.clone(),
+            address: address.clone()};
         let reporter = reporter::reporter(reporter_args);
         tokio::spawn(reporter);
     }
