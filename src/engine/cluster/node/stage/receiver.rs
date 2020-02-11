@@ -36,22 +36,10 @@ pub struct Args {
 }
 
 
-macro_rules! create_ring_mod {
-    ($module:ident, $reporters:expr) => (
-        pub mod $module {
-            fn get_reporter_by_stream_id() {
-                unimplemented!()
-            }
-        }
-    );
-}
-
 
 pub async fn receiver(args: Args) -> () {
     let State {mut socket, supervisor_tx: _, reporters, mut stream_id, mut header, mut i,
         mut total_length, mut buffer, session_id, mut events, appends_num} = init(args).await;
-    // create range lookup (TODO)
-    create_ring_mod!(ring, reporters);
     // receiver event loop
     while let Ok(n) = socket.read(&mut buffer[i..]).await {
         // if n != 0 then the socket is not closed
