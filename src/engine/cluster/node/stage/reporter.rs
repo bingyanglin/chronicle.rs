@@ -224,10 +224,9 @@ pub async fn reporter(args: Args) -> () {
                     // put the payload inside an event of a socket_sender(the sender_tx inside reporter's state)
                     let event = sender::Event::Payload{stream_id: stream_id, payload: payload, reporter_num: reporter_num};
                     // send the event
-                    match sender_tx {
+                    match &sender_tx {
                         Some(sender) => {
-                            sender.send(event);
-                            sender_tx = Some(sender);
+                            sender.send(event);    
                             // insert worker into workers map using stream_id as key.
                             workers.insert(stream_id, id);
                         }
