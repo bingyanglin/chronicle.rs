@@ -34,7 +34,7 @@ pub enum Event {
     Payload {
             stream_id: reporter::StreamId,
             payload: Payload,
-            reporter: mpsc::UnboundedSender<reporter::Event>
+            reporter_num: supervisor::ReporterNum
         },
 }
 
@@ -45,16 +45,16 @@ pub async fn sender(args: Args) -> () {
     // init the actor
     let State {supervisor_tx, reporters, session_id, mut socket, mut rx} = init(args).await;
     // loop to process event by event.
-    while let Some(Event::Payload{stream_id, payload, reporter}) = rx.recv().await {
+    while let Some(Event::Payload{stream_id, payload, reporter_num}) = rx.recv().await {
         // write the payload to the socket, make sure the result is valid
         match socket.write_all(&payload).await {
             Ok(()) => {
                 // send to reporter send_status::Ok(stream_id)
-                reporter.send(reporter::Event::SendStatus(reporter::SendStatus::Ok(stream_id)));
+                reporters.get(&reporter_num).unwrap().send(reporter::Event::SendStatus(reporter::SendStatus::Ok(stream_id)));
             },
             Err(err) => {
                 // send to reporter send_status::Err(stream_id)
-                reporter.send(reporter::Event::SendStatus(reporter::SendStatus::Err(stream_id)));
+                reporters.get(&reporter_num).unwrap().send(reporter::Event::SendStatus(reporter::SendStatus::Err(stream_id)));
                 // close channel to prevent any further Payloads to be sent from reporters
                 rx.close();
             },
