@@ -1,4 +1,5 @@
 // uses
+use crate::engine::cluster::node::stage::supervisor::Reporters;
 use crate::engine::cluster::node::stage::reporter::StreamId;
 use super::reporter;
 use super::supervisor;
@@ -6,8 +7,6 @@ use tokio::net::TcpStream;
 use tokio::io::ReadHalf;
 use tokio::prelude::*;
 
-// types
-type Events = Vec<(reporter::StreamId,reporter::Event)>;
 // consts
 const HEADER_LENGTH: usize = 9;
 const BUFFER_LENGTH: usize = 1024000;
@@ -23,7 +22,6 @@ struct State {
     buffer: Vec<u8>,
     i: usize,
     session_id: usize,
-    events: Events,
     appends_num: i16,
 }
 
@@ -39,7 +37,7 @@ pub struct Args {
 
 pub async fn receiver(args: Args) -> () {
     let State {mut socket, supervisor_tx: _, reporters, mut stream_id, mut header, mut i,
-        mut total_length, mut buffer, session_id, mut events, appends_num} = init(args).await;
+        mut total_length, mut buffer, session_id, appends_num} = init(args).await;
     // receiver event loop
     while let Ok(n) = socket.read(&mut buffer[i..]).await {
         // if n != 0 then the socket is not closed
@@ -73,12 +71,7 @@ pub async fn receiver(args: Args) -> () {
                     // reset i to new current_length
                     i = current_length;
                     // process any events in the remaining_buffer.
-                    buffer = process_remaining(remaining_buffer, &mut stream_id,&mut total_length, &mut header, &mut i, &mut events);
-                    // drain acc events
-                    for (s_id, event) in events.drain(..) {
-                        let reporter_tx = reporters.get(&compute_reporter_num(s_id, appends_num)).unwrap();
-                        let _ = reporter_tx.send(event);
-                    }
+                    buffer = process_remaining(remaining_buffer, &mut stream_id,&mut total_length, &mut header, &mut i, &appends_num, &reporters);
                 } else {
                     i = current_length; // update i to n.
                     header = true; // as now we got the frame-header including knowing its body-length
@@ -102,14 +95,13 @@ async fn init(Args{socket_rx: socket, reporters, supervisor_tx,session_id}: Args
     let header: bool = false;
     let total_length: usize = 0;
     let stream_id: reporter::StreamId = 0;
-    let events: Events = Vec::with_capacity(1000);
     let appends_num: i16 = 32767/reporters.len() as i16;
-    State {socket,session_id,total_length,i, buffer, header, supervisor_tx, reporters, stream_id, events, appends_num}
+    State {socket,session_id,total_length,i, buffer, header, supervisor_tx, reporters, stream_id, appends_num}
 }
 
 
 // private functions
-fn process_remaining(mut buffer:  Vec<u8>, stream_id: &mut reporter::StreamId, total_length: &mut usize, header: &mut bool, current_length:&mut usize, acc: &mut Events) -> Vec<u8> {
+fn process_remaining(mut buffer:  Vec<u8>, stream_id: &mut reporter::StreamId, total_length: &mut usize, header: &mut bool, current_length:&mut usize, appends_num: &i16, reporters: &Reporters) -> Vec<u8> {
     // first check if current_length hold header at least
     if *current_length >= HEADER_LENGTH {
         // decode and update total_length
@@ -120,10 +112,11 @@ fn process_remaining(mut buffer:  Vec<u8>, stream_id: &mut reporter::StreamId, t
         if *current_length >= *total_length {
             let remaining_buffer = buffer.split_off(*total_length);
             let event = reporter::Event::Response{giveload: buffer, stream_id: *stream_id};
-            acc.push((*stream_id, event));
+            let reporter_tx = reporters.get(&compute_reporter_num(*stream_id, *appends_num)).unwrap();
+            let _ = reporter_tx.send(event);
             // reset before loop
             *current_length -= *total_length;
-            process_remaining(remaining_buffer, stream_id, total_length, header, current_length, acc)
+            process_remaining(remaining_buffer, stream_id, total_length, header, current_length, appends_num, reporters)
         } else {
             if *total_length > BUFFER_LENGTH {
                 buffer.resize(*total_length, 0);
