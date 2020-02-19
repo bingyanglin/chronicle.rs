@@ -6,7 +6,6 @@ use crate::engine::cluster::supervisor::Address;
 use super::reporter;
 use super::sender;
 use super::receiver;
-use std::char;
 use tokio::sync::mpsc;
 use std::collections::HashMap;
 use tokio::net::TcpStream;
@@ -174,7 +173,7 @@ async fn init(args: Args) -> State {
     let address = args.address;
     let reporters_num = args.reporters_num;
     let supervisor_tx = args.supervisor_tx;
-    // generate vector with capcity of reporters_num
+    // generate map with capcity of reporters_num
     let reporters: Reporters = HashMap::with_capacity(reporters_num as usize);
     // return state
     State {supervisor_tx, reporters, tx, rx,shard,address,reporters_num,

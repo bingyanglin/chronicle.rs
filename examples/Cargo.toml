@@ -1,0 +1,13 @@
+[package]
+name = "examples"
+version = "0.0.0"
+publish = false
+edition = "2018"
+
+[dev-dependencies]
+chronicle = { version = "0.1.0", path = "./chronicle" }
+
+
+[[example]]
+name = "broker_example"
+path = "broker_example.rs"

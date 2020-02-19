@@ -1,9 +1,12 @@
 // uses
+use evmap::shallow_copy::ShallowCopy;
+use crate::engine::cluster::node::stage::sender::Payload;
 use crate::engine::cluster::node::stage::preparer::try_prepare;
 use super::sender;
 use super::supervisor;
 use tokio::sync::mpsc;
 use std::collections::HashMap;
+use std::mem::ManuallyDrop;
 
 // types
 pub type Sender = mpsc::UnboundedSender<Event>;
@@ -15,6 +18,25 @@ type Broker = mpsc::UnboundedSender<BrokerEvent>;
 pub type Worker = Box<dyn WorkerId>; // Worker is how will be presented in the workers_map.
 type Workers = HashMap<StreamId,Id>;
 
+
+#[derive(Clone, Debug)]
+pub struct SenderAPI {
+    pub reporter: Sender,
+    pub reporter_num: u8,
+}
+
+impl ShallowCopy for SenderAPI {
+    unsafe fn shallow_copy(&mut self) -> Self {
+        self.clone()
+    }
+}
+
+impl std::cmp::PartialEq for SenderAPI {fn eq(&self, other: &SenderAPI) -> bool {
+    self.reporter_num == other.reporter_num
+ }
+}
+
+impl std::cmp::Eq for SenderAPI {}
 // reporter state struct it holds StreamIds and Workers and the reporter's Sender
 struct State {
     stream_ids: StreamIds,
@@ -52,7 +74,7 @@ pub enum Event {
     SendStatus(SendStatus),
     Session(Session),
 }
-
+#[derive(Debug)]
 pub enum SendStatus {
     Ok(StreamId),
     Err(StreamId),
@@ -226,7 +248,7 @@ pub async fn reporter(args: Args) -> () {
                     // send the event
                     match &sender_tx {
                         Some(sender) => {
-                            sender.send(event);    
+                            sender.send(event);
                             // insert worker into workers map using stream_id as key.
                             workers.insert(stream_id, id);
                         }

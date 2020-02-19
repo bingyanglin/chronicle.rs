@@ -9,4 +9,5 @@ edition = "2018"
 [dependencies]
 tokio = {version = "0.2", features = ["full"] }
 evmap = "7.1.3"
+fnv = "1.0.6"
 futures = "0.3.1"
