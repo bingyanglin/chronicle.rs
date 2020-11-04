@@ -20,7 +20,7 @@ use crate::{
 use rand::{distributions::Uniform, prelude::ThreadRng, thread_rng, Rng};
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     i64::{MAX, MIN},
     sync::{
         atomic::{AtomicPtr, Ordering},
@@ -471,7 +471,14 @@ fn compute_vnode(chain: &[(Token, Token, Replicas)]) -> Vcell {
     }
 }
 
-fn walk_clockwise(starting_index: usize, end_index: usize, vnodes: &[VnodeTuple], replicas: &mut Replicas) {
+fn walk_clockwise(
+    starting_index: usize,
+    end_index: usize,
+    vnodes: &[VnodeTuple],
+    replicas: &mut Replicas,
+    total_replica_count_for_all_dcs: usize,
+) {
+    let mut replica_count = 0;
     for vnode in vnodes.iter().take(end_index).skip(starting_index) {
         // fetch replica
         let (_, _, node_id, dc, msb, shard_count) = &vnode;
@@ -480,13 +487,19 @@ fn walk_clockwise(starting_index: usize, end_index: usize, vnodes: &[VnodeTuple]
         match replicas.get_mut(dc) {
             Some(vec_replicas_in_dc) => {
                 if !vec_replicas_in_dc.contains(&replica) {
-                    vec_replicas_in_dc.push(replica)
+                    vec_replicas_in_dc.push(replica);
+                    replica_count += 1;
                 }
             }
             None => {
                 let vec_replicas_in_dc = vec![replica];
                 replicas.insert(dc.clone(), vec_replicas_in_dc);
+                replica_count += 1;
             }
+        }
+        // Early abortion when all the replica are already putted to the `vec_replicas_in_dc` of every dc
+        if replica_count == total_replica_count_for_all_dcs {
+            break;
         }
     }
 }
@@ -595,12 +608,29 @@ fn compute_chain(vnodes: &[VnodeTuple]) -> Vec<(Token, Token, Replicas)> {
     // compute all possible replicas in advance for each vnode in vnodes
     // prepare ring chain
     let mut chain = Vec::new();
+    let total_replica_count_for_all_dcs = vnodes
+        .iter()
+        .map(|x| (x.2, x.4, x.5))
+        .collect::<HashSet<Replica>>()
+        .len();
     for (starting_index, (left, right, _, _, _, _)) in vnodes.iter().enumerate() {
         let mut replicas: Replicas = HashMap::new();
         // first walk clockwise phase (start..end)
-        walk_clockwise(starting_index, vnodes.len(), &vnodes, &mut replicas);
+        walk_clockwise(
+            starting_index,
+            vnodes.len(),
+            &vnodes,
+            &mut replicas,
+            total_replica_count_for_all_dcs,
+        );
         // second walk clockwise phase (0..start)
-        walk_clockwise(0, starting_index, &vnodes, &mut replicas);
+        walk_clockwise(
+            0,
+            starting_index,
+            &vnodes,
+            &mut replicas,
+            total_replica_count_for_all_dcs,
+        );
         // create vnode
         chain.push((*left, *right, replicas));
     }
@@ -661,12 +691,29 @@ fn generate_and_compute_fake_ring() {
     // prepare ring chain
     let mut chain = Vec::new();
     let mut starting_index = 0;
+    let total_replica_count_for_all_dcs = vnodes
+        .iter()
+        .map(|x| (x.2, x.4, x.5))
+        .collect::<HashSet<Replica>>()
+        .len();
     for (left, right, _, _, _, _) in &vnodes {
         let mut replicas: Replicas = HashMap::new();
         // first walk clockwise phase (start..end)
-        walk_clockwise(starting_index, vnodes.len(), &vnodes, &mut replicas);
+        walk_clockwise(
+            starting_index,
+            vnodes.len(),
+            &vnodes,
+            &mut replicas,
+            total_replica_count_for_all_dcs,
+        );
         // second walk clockwise phase (0..start)
-        walk_clockwise(0, starting_index, &vnodes, &mut replicas);
+        walk_clockwise(
+            0,
+            starting_index,
+            &vnodes,
+            &mut replicas,
+            total_replica_count_for_all_dcs,
+        );
         // update starting_index
         starting_index += 1;
         // create vnode
